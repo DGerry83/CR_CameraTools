@@ -9,6 +9,8 @@
     <AssemblyName>CameraTools</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>preview</LangVersion>
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <DebugSymbols>True</DebugSymbols>
@@ -148,7 +150,6 @@
     <Content Include="Distribution\GameData\CameraTools\Sounds\windtear.wav" />
     <Content Include="Distribution\GameData\CameraTools\Textures\icon.png" />
   </ItemGroup>
-  <ItemGroup />
   <!--  <PropertyGroup>
     <PostBuildEvent>@echo $(Targetname)
 @echo ...
@@ -181,6 +182,11 @@ copy /Y "$(TargetDir)$(Targetname).pdb" "%25KSP_DIR%25\GameData\CameraTools\Plug
 
 @echo Build/deploy complete!</PostBuildEvent>
   </PropertyGroup> -->
+  <ItemGroup>
+    <PackageReference Include="KSPBuildTools">
+      <Version>1.1.1</Version>
+    </PackageReference>
+  </ItemGroup>
   <PropertyGroup>
     <PostBuildEvent Condition="'$(OS)' == 'Windows_NT' ">
       @echo $(Targetname)
@@ -262,5 +268,9 @@ copy /Y "$(TargetDir)$(Targetname).pdb" "%25KSP_DIR%25\GameData\CameraTools\Plug
   <PropertyGroup>
     <PreBuildEvent>
     </PreBuildEvent>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PostBuildEvent>
+</PostBuildEvent>
   </PropertyGroup>
 </Project>

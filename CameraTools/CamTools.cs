@@ -22,8 +22,8 @@ namespace CameraTools
 		public static FlightCamera flightCamera;
 
 		string Version = "unknown";
-		GameObject cameraParent;
-		public Vessel vessel;
+		public GameObject cameraParent; //Public for CinematicRecorder access
+        public Vessel vessel;
 		List<ModuleEngines> engines = new();
 		List<ModuleCommand> cockpits = new();
 		public static HashSet<VesselType> ignoreVesselTypesForAudio = [VesselType.Debris, VesselType.SpaceObject, VesselType.Unknown, VesselType.Flag]; // Ignore some vessel types to avoid using up all the SoundManager's channels.
@@ -36,7 +36,7 @@ namespace CameraTools
 		float origDistance;
 		FlightCamera.Modes origMode;
 		float origFov = 60;
-		Part camTarget = null;
+		public Part camTarget = null; //Public for CinematicRecorder access
 		Vector3 cameraUp = Vector3.up;
 		public bool cameraToolActive = false;
 		bool cameraParentWasStolen = false;
@@ -66,8 +66,28 @@ namespace CameraTools
 		float freeLookDistance = 0;
 		[CTPersistantField] public float freeLookThresholdSqr = 0.1f; // Mouse movement threshold for starting free look (units unknown).
 
-		#region Input
-		[CTPersistantField] public string cameraKey = "home";
+        // ============================================================================
+        // CinematicRecorder API - Phase 1: Core Control Flags
+        // ============================================================================
+        public bool cinematicRecorderControl = false;           // Master flag for external control
+        public bool cinematicRecorderDeterministic = false;     // Deterministic physics-step mode
+        public float lastExternalFOV = 60f;                     // External FOV target
+        private float deterministicDeltaTime = -1f;             // Internal deterministic timing
+        public float deterministicTimeAccumulator = 0f;         // Path time accumulator for deterministic mode
+
+        // ============================================================================
+        // CinematicRecorder API - Phase 5: Events/Callbacks
+        // ============================================================================
+        public static event Action OnCameraActivated;
+        public static event Action OnCameraDeactivated;
+        public static event Action OnPathingStarted;
+        public static event Action OnPathingStopped;
+        public static event Action OnCinematicRecorderControlTaken;
+
+
+
+        #region Input
+        [CTPersistantField] public string cameraKey = "home";
 		[CTPersistantField] public string revertKey = "end";
 		[CTPersistantField] public string toggleMenu = "[0]";
 		[CTPersistantField] public bool enableKeypad = false;
@@ -152,14 +172,14 @@ namespace CameraTools
 		#endregion
 
 		#region Revert/Reset
-		bool setPresetOffset = false;
-		Vector3 presetOffset = Vector3.zero;
-		[CTPersistantField] bool saveRotation = false;
+		public bool setPresetOffset = false; //Public for CinematicRecorder access
+        public Vector3 presetOffset = Vector3.zero; //Public for CinematicRecorder access
+        [CTPersistantField] bool saveRotation = false;
 		bool hasSavedRotation = false;
 		Quaternion savedRotation;
 		bool wasActiveBeforeModeChange = false;
 		Vector3 lastTargetPosition = Vector3.zero;
-		bool hasTarget = false;
+		public bool hasTarget = false; //Public for CinematicRecorder access
 		bool hasDied = false;
 		//retaining position and rotation after vessel destruction
 		GameObject deathCam;
@@ -220,9 +240,9 @@ namespace CameraTools
 				}
 			}
 		}
-		float manualFOV = 60;
-		float currentFOV = 60;
-		[CTPersistantField] public float autoZoomMarginDogfight = 50;
+		public float manualFOV = 60; //Public for CinematicRecorder control access
+        public float currentFOV = 60; //Public for CinematicRecorder control access
+        [CTPersistantField] public float autoZoomMarginDogfight = 50;
 		[CTPersistantField] public float autoZoomMarginStationary = 30;
 		[CTPersistantField] public float autoZoomMarginMax = 50f;
 		public float autoZoomMargin
@@ -293,9 +313,9 @@ namespace CameraTools
 		[CTPersistantField] public bool autoLandingPosition = false;
 		bool autoLandingCamEnabled = false;
 		[CTPersistantField] public bool autoFlybyPosition = false;
-		Vector3 manualPosition = Vector3.zero;
-		Vector3 lastVesselCoM = Vector3.zero;
-		[CTPersistantField] public float freeMoveSpeed = 10;
+		public Vector3 manualPosition = Vector3.zero; //Public for CinematicRecorder control access
+		public Vector3 lastVesselCoM = Vector3.zero; //Public for CinematicRecorder access
+        [CTPersistantField] public float freeMoveSpeed = 10;
 		string guiFreeMoveSpeed = "10";
 		float freeMoveSpeedRaw;
 		float freeMoveSpeedMinRaw;
@@ -345,17 +365,17 @@ namespace CameraTools
 		[CTPersistantField] public float zoomExpPathing = 1f;
 		[CTPersistantField] public float maxRelV = 2500;
 		[CTPersistantField] public bool maintainInitialVelocity = false;
-		Vector3d initialVelocity = Vector3d.zero;
-		Orbit initialOrbit;
+		public Vector3d initialVelocity = Vector3d.zero; //Public for CinematicRecorder access
+        Orbit initialOrbit;
 		[CTPersistantField] public bool useOrbital = false;
 		float signedMaxRelVSqr;
 		#endregion
 
 		#region Pathing Camera Fields
 		[CTPersistantField] public int selectedPathIndex = -1;
-		List<CameraPath> availablePaths;
-		CameraPath currentPath
-		{
+		public List<CameraPath> availablePaths; //Public for CinematicRecorder access
+        public CameraPath currentPath //Public for CinematicRecorder access
+        {
 			get
 			{
 				if (selectedPathIndex >= 0 && selectedPathIndex < availablePaths.Count)
@@ -368,25 +388,36 @@ namespace CameraTools
 				}
 			}
 		}
-		int currentKeyframeIndex = -1;
-		float currentKeyframeTime;
+		public int currentKeyframeIndex = -1; //Public for CinematicRecorder access
+        float currentKeyframeTime;
 		PositionInterpolationType currentKeyframePositionInterpolationType = PositionInterpolationType.CubicSpline; // Default to CubicSpline
 		RotationInterpolationType currentKeyframeRotationInterpolationType = RotationInterpolationType.CubicSpline; // Default to CubicSpline
 		string currKeyTimeString;
 		bool showKeyframeEditor = false;
-		float pathStartTime;
-		public float pathingSecondarySmoothing = 0f;
+		public float pathStartTime; //Public for CinematicRecorder access
+        public float pathingSecondarySmoothing = 0f;
 		public float pathingLerpRate = 1; // Lerp rate corresponding to the secondary smoothing factor.
 		public float pathingTimeScale = 1f;
-		bool isPlayingPath = false;
-		float pathTime
-		{
-			get
-			{
-				return GetTime() - pathStartTime;
-			}
-		}
-		Vector2 keysScrollPos;
+		public bool isPlayingPath = false; //Public for CinematicRecorder access
+
+        float pathTime
+        {
+            get
+            {
+                return GetPathTime();
+            }
+        }
+        // CinematicRecorder API: Modified to support deterministic physics-step recording 
+        // (uses accumulator instead of real-time when cinematicRecorderDeterministic is true)
+        public float GetPathTime()
+        {
+            if (cinematicRecorderDeterministic)
+                return deterministicTimeAccumulator;
+            return GetTime() - pathStartTime;
+        }
+
+
+        Vector2 keysScrollPos;
 		public bool interpolationType = false;
 		[CTPersistantField] public bool useRealTime = true;
 		#endregion
@@ -1009,7 +1040,8 @@ namespace CameraTools
 
 		public void CameraActivate()
 		{
-			if (CameraManager.Instance.currentCameraMode != CameraManager.CameraMode.Flight)
+            OnCameraActivated?.Invoke();  // CinematicRecorder API: Event invocation
+            if (CameraManager.Instance.currentCameraMode != CameraManager.CameraMode.Flight)
 			{
 				activateWhenInFlightMode = true;
 				revertWhenInFlightMode = false;
@@ -1205,8 +1237,8 @@ namespace CameraTools
 				{
 					if (CTKrakensbane.IsActive)
 					{ dogfightLastTargetPosition -= CTKrakensbane.FloatingOriginOffsetNonKrakensbane; }
-					dogfightLastTargetPosition += dogfightLastTargetVelocity * TimeWarp.fixedDeltaTime;
-				}
+                    dogfightLastTargetPosition += dogfightLastTargetVelocity * GetDeltaTime(); // CinematicRecorder API: Use deterministic delta
+                }
 			}
 			cameraParent.transform.position = vessel.CoM; // Note don't set cameraParent.transform.rotation as it messes with the Lerping.
 
@@ -1374,8 +1406,13 @@ namespace CameraTools
 				}
 				manualFOV = targetFoV;
 			}
-			//FOV
-			if (!autoFOV)
+            //FOV
+            if (cinematicRecorderControl)  // CinematicRecorder API: Bypass smoothing when under external control
+            {
+                currentFOV = lastExternalFOV;
+                flightCamera.SetFoV(currentFOV);
+            }
+            else if (!autoFOV)
 			{
 				zoomFactor = Mathf.Exp(zoomExp) / Mathf.Exp(1);
 				manualFOV = 60 / zoomFactor;
@@ -1748,42 +1785,43 @@ namespace CameraTools
 				}
 				lastVesselCoM = vessel.CoM;
 				cameraParent.transform.position = manualPosition + vessel.CoM;
-				if (vessel.srfSpeed > maxRelV / 2 && offsetSinceLastFrame.sqrMagnitude > signedMaxRelVSqr * TimeWarp.fixedDeltaTime * TimeWarp.fixedDeltaTime) // Account for maxRelV. Note: we use fixedDeltaTime here as we're interested in how far it jumped on the physics update. Also check for srfSpeed to account for changes in CoM when on launchpad (srfSpeed < maxRelV/2 should be good for maxRelV down to around 1 in most cases).
-				{
-					offsetSinceLastFrame = maxRelV * TimeWarp.fixedDeltaTime * offsetSinceLastFrame.normalized;
-				}
-				if (!offsetSinceLastFrame.IsZero()) cameraTransform.position -= offsetSinceLastFrame;
-			}
+                float deltaTime = GetDeltaTime();  // CinematicRecorder API: Use deterministic delta
+                if (vessel.srfSpeed > maxRelV / 2 && offsetSinceLastFrame.sqrMagnitude > signedMaxRelVSqr * deltaTime * deltaTime)
+                {
+                    offsetSinceLastFrame = maxRelV * deltaTime * offsetSinceLastFrame.normalized;
+                }
+                if (!offsetSinceLastFrame.IsZero()) cameraTransform.position -= offsetSinceLastFrame;
+            }
 
-			// if (DEBUG2 && !GameIsPaused)
-			// {
-			// 	var Δ = lastOffset - (vessel.CoM - cameraTransform.position);
-			// 	Debug2Log("situation: " + vessel.situation);
-			// 	Debug2Log("warp mode: " + TimeWarp.WarpMode + ", fixedDeltaTime: " + TimeWarp.fixedDeltaTime);
-			// 	Debug2Log("floating origin offset: " + FloatingOrigin.Offset.ToString("G6"));
-			// 	Debug2Log("offsetNonKB: " + FloatingOrigin.OffsetNonKrakensbane.ToString("G6"));
-			// 	Debug2Log("vv*Δt: " + (vessel.obt_velocity * TimeWarp.fixedDeltaTime).ToString("G6"));
-			// 	Debug2Log("sv*Δt: " + (vessel.srf_velocity * TimeWarp.fixedDeltaTime).ToString("G6"));
-			// 	Debug2Log("kv*Δt: " + (Krakensbane.GetFrameVelocity() * TimeWarp.fixedDeltaTime).ToString("G6"));
-			// 	Debug2Log("ΔKv: " + Krakensbane.GetLastCorrection().ToString("G6"));
-			// 	Debug2Log("sv*Δt-onkb: " + (vessel.srf_velocity * TimeWarp.fixedDeltaTime - FloatingOrigin.OffsetNonKrakensbane).ToString("G6"));
-			// 	Debug2Log("kv*Δt-onkb: " + (Krakensbane.GetFrameVelocity() * TimeWarp.fixedDeltaTime - FloatingOrigin.OffsetNonKrakensbane).ToString("G6"));
-			// 	Debug2Log("floatingKrakenAdjustment: " + floatingKrakenAdjustment.ToString("G6"));
-			// 	Debug2Log("(sv-kv)*Δt" + ((vessel.srf_velocity - Krakensbane.GetFrameVelocity()) * TimeWarp.fixedDeltaTime).ToString("G6"));
-			// 	Debug2Log("Parent pos: " + cameraParent.transform.position.ToString("G6"));
-			// 	Debug2Log("Camera pos: " + cameraTransform.position.ToString("G6"));
-			// 	Debug2Log("ΔCamera: " + (cameraTransform.position - lastCameraPosition).ToString("G6"));
-			// 	Debug2Log("δp: " + (cameraParent.transform.position - lastCamParentPosition).ToString("G6"));
-			// 	Debug2Log("ΔCamera + δp: " + (cameraTransform.position - lastCameraPosition + cameraParent.transform.position - lastCamParentPosition).ToString("G6"));
-			// 	Debug2Log("δ: " + lastOffsetSinceLastFrame.ToString("G6"));
-			// 	Debug2Log("Δ: " + Δ.ToString("G6"));
-			// 	Debug2Log("δ + Δ: " + (lastOffsetSinceLastFrame + Δ).ToString("G6"));
-			// 	lastOffset = vessel.CoM - cameraTransform.position;
-			// 	lastCamParentPosition = cameraParent.transform.position;
-			// }
+            // if (DEBUG2 && !GameIsPaused)
+            // {
+            // 	var Δ = lastOffset - (vessel.CoM - cameraTransform.position);
+            // 	Debug2Log("situation: " + vessel.situation);
+            // 	Debug2Log("warp mode: " + TimeWarp.WarpMode + ", fixedDeltaTime: " + TimeWarp.fixedDeltaTime);
+            // 	Debug2Log("floating origin offset: " + FloatingOrigin.Offset.ToString("G6"));
+            // 	Debug2Log("offsetNonKB: " + FloatingOrigin.OffsetNonKrakensbane.ToString("G6"));
+            // 	Debug2Log("vv*Δt: " + (vessel.obt_velocity * TimeWarp.fixedDeltaTime).ToString("G6"));
+            // 	Debug2Log("sv*Δt: " + (vessel.srf_velocity * TimeWarp.fixedDeltaTime).ToString("G6"));
+            // 	Debug2Log("kv*Δt: " + (Krakensbane.GetFrameVelocity() * TimeWarp.fixedDeltaTime).ToString("G6"));
+            // 	Debug2Log("ΔKv: " + Krakensbane.GetLastCorrection().ToString("G6"));
+            // 	Debug2Log("sv*Δt-onkb: " + (vessel.srf_velocity * TimeWarp.fixedDeltaTime - FloatingOrigin.OffsetNonKrakensbane).ToString("G6"));
+            // 	Debug2Log("kv*Δt-onkb: " + (Krakensbane.GetFrameVelocity() * TimeWarp.fixedDeltaTime - FloatingOrigin.OffsetNonKrakensbane).ToString("G6"));
+            // 	Debug2Log("floatingKrakenAdjustment: " + floatingKrakenAdjustment.ToString("G6"));
+            // 	Debug2Log("(sv-kv)*Δt" + ((vessel.srf_velocity - Krakensbane.GetFrameVelocity()) * TimeWarp.fixedDeltaTime).ToString("G6"));
+            // 	Debug2Log("Parent pos: " + cameraParent.transform.position.ToString("G6"));
+            // 	Debug2Log("Camera pos: " + cameraTransform.position.ToString("G6"));
+            // 	Debug2Log("ΔCamera: " + (cameraTransform.position - lastCameraPosition).ToString("G6"));
+            // 	Debug2Log("δp: " + (cameraParent.transform.position - lastCamParentPosition).ToString("G6"));
+            // 	Debug2Log("ΔCamera + δp: " + (cameraTransform.position - lastCameraPosition + cameraParent.transform.position - lastCamParentPosition).ToString("G6"));
+            // 	Debug2Log("δ: " + lastOffsetSinceLastFrame.ToString("G6"));
+            // 	Debug2Log("Δ: " + Δ.ToString("G6"));
+            // 	Debug2Log("δ + Δ: " + (lastOffsetSinceLastFrame + Δ).ToString("G6"));
+            // 	lastOffset = vessel.CoM - cameraTransform.position;
+            // 	lastCamParentPosition = cameraParent.transform.position;
+            // }
 
-			// Keypad input
-			if (enableKeypad && !boundThisFrame)
+            // Keypad input
+            if (enableKeypad && !boundThisFrame)
 			{
 				switch (fmMode)
 				{
@@ -1962,8 +2000,13 @@ namespace CameraTools
 				//flightCamera.SetFoV(targetFoV);	
 				manualFOV = targetFoV;
 			}
-			//FOV
-			if (!autoFOV)
+            //FOV
+            if (cinematicRecorderControl)  // CinematicRecorder API: Bypass smoothing when under external control
+            {
+                currentFOV = lastExternalFOV;
+                flightCamera.SetFoV(currentFOV);
+            }
+            else if (!autoFOV)
 			{
 				zoomFactor = Mathf.Exp(zoomExp) / Mathf.Exp(1);
 				manualFOV = 60 / zoomFactor;
@@ -2199,14 +2242,22 @@ namespace CameraTools
 			}
 
 			//zoom
-			zoomFactor = Mathf.Exp(zoomExp) / Mathf.Exp(1);
-			manualFOV = 60 / zoomFactor;
-			updateFOV = (currentFOV != manualFOV);
-			if (updateFOV)
+			if (cinematicRecorderControl)  // CR API: Bypass smoothing when under external control
 			{
-				currentFOV = Mathf.Lerp(currentFOV, manualFOV, 0.1f);
+				currentFOV = lastExternalFOV;
 				flightCamera.SetFoV(currentFOV);
-				updateFOV = false;
+			}
+			else
+			{
+				zoomFactor = Mathf.Exp(zoomExp) / Mathf.Exp(1);
+				manualFOV = 60 / zoomFactor;
+				updateFOV = (currentFOV != manualFOV);
+				if (updateFOV)
+				{
+					currentFOV = Mathf.Lerp(currentFOV, manualFOV, 0.1f);
+					flightCamera.SetFoV(currentFOV);
+					updateFOV = false;
+				}
 			}
 		}
 
@@ -2227,12 +2278,13 @@ namespace CameraTools
 			if (isPlayingPath) StopPlayingPath();
 		}
 
-		void SelectPath(int index)
-		{
-			selectedPathIndex = index;
-		}
+        public void SelectPath(int index) //Public for CinematicRecorder access 
+        {
+            if (index < 0 || index >= availablePaths.Count) return;
+            selectedPathIndex = index;
+        }
 
-		void SelectKeyframe(int index)
+        void SelectKeyframe(int index)
 		{
 			if (isPlayingPath)
 			{
@@ -2401,14 +2453,16 @@ namespace CameraTools
 			}
 			SetZoomImmediate(firstFrame.zoom);
 
-			isPlayingPath = true;
-			pathStartTime = GetTime() - (startTime / currentPath.timeScale);
+            isPlayingPath = true;
+            OnPathingStarted?.Invoke();  // CinematicRecorder API: Event invocation
+            pathStartTime = GetTime() - (startTime / currentPath.timeScale);
 		}
 
 		void StopPlayingPath()
 		{
-			isPlayingPath = false;
-		}
+            isPlayingPath = false;
+            OnPathingStopped?.Invoke();  // CinematicRecorder API: Event invocation
+        }
 
 		void TogglePathList()
 		{
@@ -2701,7 +2755,8 @@ namespace CameraTools
 
 		public void RevertCamera()
 		{
-			if (!(CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.Flight || CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.IVA)) // Don't revert if not in Flight or IVA mode, it's already been deactivated, but the flight camera isn't available to be reconfigured.
+            OnCameraDeactivated?.Invoke();  // CinematicRecorder API: Event invocation
+            if (!(CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.Flight || CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.IVA)) // Don't revert if not in Flight or IVA mode, it's already been deactivated, but the flight camera isn't available to be reconfigured.
 			{
 				revertWhenInFlightMode = true;
 				activateWhenInFlightMode = false;
@@ -4216,8 +4271,114 @@ namespace CameraTools
 			}
 			if (DEBUG) { Debug.Log("[CameraTools]: Verbose debugging enabled."); }
 		}
-		#endregion
-	}
+        #endregion
 
-	public enum ToolModes { StationaryCamera, DogfightCamera, Pathing };
+        #region CinematicRecorderAPI Methods
+        // ============================================================================
+        // CinematicRecorder API - Phase 1 & 3: API Methods 
+        // ============================================================================
+
+        /// <summary>
+        /// Sets the FOV immediately without smoothing. Requires cinematicRecorderControl to be true.
+        /// </summary>
+        public void SetExternalFOV(float fov)
+        {
+            if (!cinematicRecorderControl) return;
+            lastExternalFOV = fov;
+            currentFOV = fov;
+            manualFOV = fov;
+            if (flightCamera != null)
+                flightCamera.SetFoV(currentFOV);
+        }
+
+        /// <summary>
+        /// Enables/disables cinematic recorder control mode.
+        /// </summary>
+        public void SetCinematicRecorderControl(bool enabled, bool deterministicMode)
+        {
+            cinematicRecorderControl = enabled;
+            cinematicRecorderDeterministic = enabled && deterministicMode;
+            if (enabled)
+            {
+                autoZoomStationary = false; // Prevent conflicts with auto-zoom
+                OnCinematicRecorderControlTaken?.Invoke();
+            }
+        }
+
+        // ============================================================================
+        // CinematicRecorder API - Phase 3: Pathing Camera API
+        // ============================================================================
+
+        public void StartPathPlayback()
+        {
+            if (selectedPathIndex < 0 || selectedPathIndex >= availablePaths.Count) return;
+            isPlayingPath = true;
+            deterministicTimeAccumulator = 0f;
+            pathStartTime = GetTime();
+            OnPathingStarted?.Invoke();
+        }
+
+        public void StopPathPlayback()
+        {
+            isPlayingPath = false;
+            OnPathingStopped?.Invoke();
+        }
+
+        public float GetPathTimeScale(int index)
+        {
+            if (index < 0 || index >= availablePaths.Count) return 1f;
+            return availablePaths[index].timeScale;
+        }
+
+        public void SetPathTimeScale(int index, float scale)
+        {
+            if (index < 0 || index >= availablePaths.Count) return;
+            availablePaths[index].timeScale = scale;
+        }
+
+        public bool PathExists(int index)
+        {
+            return index >= 0 && index < availablePaths.Count;
+        }
+
+        // ============================================================================
+        // CinematicRecorder API - Phase 4: Deterministic Mode Support
+        // ============================================================================
+
+        /// <summary>
+        /// Returns deterministic delta time if in deterministic mode, otherwise TimeWarp.fixedDeltaTime
+        /// </summary>
+        public float GetDeltaTime()
+        {
+            if (deterministicDeltaTime > 0)
+                return deterministicDeltaTime;
+            return TimeWarp.fixedDeltaTime;
+        }
+
+        /// <summary>
+        /// Call this from external mods for physics-step deterministic recording.
+        /// </summary>
+        public void PhysicsStepUpdate(float physicsDeltaTime)
+        {
+            if (!cinematicRecorderDeterministic || !cameraToolActive) return;
+            deterministicDeltaTime = physicsDeltaTime;
+
+            // Advance deterministic path time
+            if (toolMode == ToolModes.Pathing && isPlayingPath && currentPath != null)
+            {
+                deterministicTimeAccumulator += physicsDeltaTime * currentPath.timeScale;
+            }
+
+            // Apply external FOV if under CR control
+            if (cinematicRecorderControl)
+            {
+                currentFOV = lastExternalFOV;
+                flightCamera.SetFoV(currentFOV);
+            }
+        }
+
+        #endregion
+    }
+
+    public enum ToolModes { StationaryCamera, DogfightCamera, Pathing };
 }
