@@ -67,6 +67,7 @@
     <Compile Include="InputField.cs" />
     <Compile Include="ModIntegration\BDArmory.cs" />
     <Compile Include="ModIntegration\BetterTimeWarp.cs" />
+    <Compile Include="ModIntegration\CinematicRecorderIntegration.cs" />
     <Compile Include="ModIntegration\MouseAimFlight.cs" />
     <Compile Include="ModIntegration\TimeControl.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -270,7 +271,10 @@ copy /Y "$(TargetDir)$(Targetname).pdb" "%25KSP_DIR%25\GameData\CameraTools\Plug
     </PreBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
-    <PostBuildEvent>
-</PostBuildEvent>
+    <PostBuildEvent>if exist "$(ProjectDir)copy_dll.bat" (
+    "$(ProjectDir)copy_dll.bat" "$(TargetPath)"
+) else (
+    echo Warning: copy_dll.bat not found. Skipping personal copy.
+)</PostBuildEvent>
   </PropertyGroup>
 </Project>

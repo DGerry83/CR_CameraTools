@@ -67,16 +67,18 @@ namespace CameraTools
 		[CTPersistantField] public float freeLookThresholdSqr = 0.1f; // Mouse movement threshold for starting free look (units unknown).
 
         // ============================================================================
-        // CinematicRecorder API - Phase 1: Core Control Flags
+        // CinematicRecorder API - Core Control Flags
         // ============================================================================
         public bool cinematicRecorderControl = false;           // Master flag for external control
         public bool cinematicRecorderDeterministic = false;     // Deterministic physics-step mode
         public float lastExternalFOV = 60f;                     // External FOV target
         private float deterministicDeltaTime = -1f;             // Internal deterministic timing
         public float deterministicTimeAccumulator = 0f;         // Path time accumulator for deterministic mode
+        public bool lockPathingToPlaybackRate = false;          // Path playback time format - false = physics time, true = playback time
+        private bool previousUseRealTime;						// Store real-time setting when switching to deterministic
 
         // ============================================================================
-        // CinematicRecorder API - Phase 5: Events/Callbacks
+        // CinematicRecorder API - Events/Callbacks
         // ============================================================================
         public static event Action OnCameraActivated;
         public static event Action OnCameraDeactivated;
@@ -174,7 +176,7 @@ namespace CameraTools
 		#region Revert/Reset
 		public bool setPresetOffset = false; //Public for CinematicRecorder access
         public Vector3 presetOffset = Vector3.zero; //Public for CinematicRecorder access
-        [CTPersistantField] bool saveRotation = false;
+        [CTPersistantField] public bool saveRotation = false;
 		bool hasSavedRotation = false;
 		Quaternion savedRotation;
 		bool wasActiveBeforeModeChange = false;
@@ -2772,76 +2774,92 @@ namespace CameraTools
 			if (CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.IVA) // If we were in IVA mode, go back to Flight mode and pretend we were active.
 			{
 				CameraManager.Instance.SetCameraFlight();
-				cameraToolActive = true;
-			}
+				// cameraToolActive = true;  Cinematic Recorder API Fix: Removed erroneous cameraToolActive = true assignment that caused state desync
+            }
 
-			if (cameraToolActive)
-			{
-				presetOffset = flightCamera.transform.position;
-				if (camTarget == null && saveRotation)
-				{
-					savedRotation = flightCamera.transform.rotation;
-					hasSavedRotation = true;
-				}
-				else
-				{
-					hasSavedRotation = false;
-				}
-			}
-			hasDied = false;
-			if (FlightGlobals.ActiveVessel != null && HighLogic.LoadedScene == GameScenes.FLIGHT && flightCamera.vesselTarget != FlightGlobals.ActiveVessel)
-			{
-				flightCamera.SetTarget(FlightGlobals.ActiveVessel.transform, FlightCamera.TargetMode.Vessel);
-			}
-			if (cameraToolActive)
-			{
-				if (DEBUG) Debug.Log($"[CameraTools]: Resetting camera parent to {origParent.name}");
-				flightCamera.transform.parent = origParent;
-				if (origParent != null) // Restore the camera to the original local offsets from the original gameObject.
-				{
-					flightCamera.transform.localPosition = origLocalPosition;
-					flightCamera.transform.localRotation = origLocalRotation;
-					flightCamera.SetDistanceImmediate(BDArmory.hasBDA ? Mathf.Min(origDistance, bdArmory.restoreDistanceLimit) : origDistance);
-				}
-				else // Otherwise, restore the camera to the original absolute position and rotation as the original gameObject no longer exists (if it even existed to begin with).
-				{
-					flightCamera.transform.position = origPosition;
-					flightCamera.transform.rotation = origRotation;
-				}
-				flightCamera.mode = origMode; // Restore the camera mode. Note: using flightCamera.setModeImmediate(origMode); causes the annoying camera mode change messages to appear, simply setting the value doesn't do this and seems to work fine.
-				flightCamera.SetFoV(origFov);
-				currentFOV = origFov;
-				cameraParentWasStolen = false;
-				dogfightLastTarget = false;
-			}
-			if (HighLogic.LoadedSceneIsFlight)
-				flightCamera.mainCamera.nearClipPlane = origNearClip;
-			else
-				Camera.main.nearClipPlane = origNearClip;
-			if (BDArmory.hasBDA) bdArmory.OnRevert();
+            // Cinematic Recorder API Fix: Check actual camera parenting instead of relying solely on cameraToolActive flag
+            // This fixes the "locked in place" bug when the flag gets desynchronized from actual object state
+            bool cameraIsControlledByCT = flightCamera.transform.parent == cameraParent.transform ||
+                                           flightCamera.transform.parent == deathCam.transform;
 
-			flightCamera.ActivateUpdate();
+            // Cinematic Recorder API Fix: Also check the flag to maintain backward compatibility, but primarily rely on parenting check
+            if (cameraToolActive || cameraIsControlledByCT)
+            {
+                presetOffset = flightCamera.transform.position;
+                if (camTarget == null && saveRotation)
+                {
+                    savedRotation = flightCamera.transform.rotation;
+                    hasSavedRotation = true;
+                }
+                else
+                {
+                    hasSavedRotation = false;
+                }
 
-			cameraToolActive = false;
+                // Cinematic Recorder API Fix: Ensure death cam state is always cleared on revert
+                hasDied = false;
+                // Cinematic Recorder API Fix: Ensure cockpit view flag is cleared 
+                cockpitView = false;
 
-			StopPlayingPath();
+                if (FlightGlobals.ActiveVessel != null && HighLogic.LoadedScene == GameScenes.FLIGHT && flightCamera.vesselTarget != FlightGlobals.ActiveVessel)
+                {
+                    flightCamera.SetTarget(FlightGlobals.ActiveVessel.transform, FlightCamera.TargetMode.Vessel);
+                }
 
-			ResetDoppler();
+                // Cinematic Recorder API Fix: Safe parent restoration with null check for origParent
+                if (origParent != null)
+                {
+                    if (DEBUG) Debug.Log($"[CameraTools]: Resetting camera parent to {origParent.name}");
+                    flightCamera.transform.parent = origParent;
+                    flightCamera.transform.localPosition = origLocalPosition;
+                    flightCamera.transform.localRotation = origLocalRotation;
+                    flightCamera.SetDistanceImmediate(BDArmory.hasBDA ? Mathf.Min(origDistance, bdArmory.restoreDistanceLimit) : origDistance);
+                }
+                else
+                {
+                    // Cinematic Recorder API Fix: Fallback when original parent was destroyed or never saved properly
+                    Debug.Log("[CameraTools]: Original parent is null, resetting to absolute position/rotation");
+                    flightCamera.transform.parent = null;
+                    flightCamera.transform.position = origPosition;
+                    flightCamera.transform.rotation = origRotation;
+                }
 
-			try
-			{
-				if (OnResetCTools != null)
-				{ OnResetCTools(); }
-			}
-			catch (Exception e)
-			{ Debug.Log("[CameraTools]: Caught exception resetting CameraTools " + e.ToString()); }
+                flightCamera.mode = origMode;
+                flightCamera.SetFoV(origFov);
+                currentFOV = origFov;
+                cameraParentWasStolen = false;
+                dogfightLastTarget = false;
+            }
 
-			// Reset the parameters we set in other mods so as not to mess with them while we're not active.
-			timeControl.SetTimeControlCameraZoomFix(true);
-			betterTimeWarp.SetBetterTimeWarpScaleCameraSpeed(true);
-		}
+            // Cinematic Recorder API Fix: Always ensure active flag is false after revert attempt to prevent state desync
+            cameraToolActive = false;
 
-		void SaveOriginalCamera()
+            if (HighLogic.LoadedSceneIsFlight)
+                flightCamera.mainCamera.nearClipPlane = origNearClip;
+            else
+                Camera.main.nearClipPlane = origNearClip;
+            if (BDArmory.hasBDA) bdArmory.OnRevert();
+
+            flightCamera.ActivateUpdate();
+
+            StopPlayingPath();
+
+            ResetDoppler();
+
+            try
+            {
+                if (OnResetCTools != null)
+                { OnResetCTools(); }
+            }
+            catch (Exception e)
+            { Debug.Log("[CameraTools]: Caught exception resetting CameraTools " + e.ToString()); }
+
+            // Reset the parameters we set in other mods so as not to mess with them while we're not active.
+            timeControl.SetTimeControlCameraZoomFix(true);
+            betterTimeWarp.SetBetterTimeWarpScaleCameraSpeed(true);
+        }
+
+        void SaveOriginalCamera()
 		{
 			origPosition = flightCamera.transform.position;
 			origRotation = flightCamera.transform.rotation;
@@ -4274,9 +4292,123 @@ namespace CameraTools
         #endregion
 
         #region CinematicRecorderAPI Methods
-        // ============================================================================
-        // CinematicRecorder API - Phase 1 & 3: API Methods 
-        // ============================================================================
+        // ===================================
+        // CinematicRecorder API 
+        // ===================================
+
+        // Cinematic Recorder Public API method for explicit deactivation with state validation
+        // Use this instead of RevertCamera() when programmatically deactivating to ensure cleanup happens
+        // even if cameraToolActive flag is desynchronized
+        public void DeactivateCamera()
+        {
+            if (DEBUG) Debug.Log($"[CameraTools]: DeactivateCamera called. cameraToolActive={cameraToolActive}, parent={flightCamera.transform.parent?.name}");
+
+            // Force the revert logic by checking actual state, not just flag
+            RevertCamera();
+
+            // Double-check that we actually got reverted if flag was false but we were still active
+            if (flightCamera.transform.parent == cameraParent.transform || flightCamera.transform.parent == deathCam.transform)
+            {
+                Debug.LogWarning("[CameraTools]: Camera still parented to CT after RevertCamera, forcing cleanup");
+                flightCamera.transform.parent = origParent ?? null;
+                flightCamera.transform.localPosition = origLocalPosition;
+                flightCamera.transform.localRotation = origLocalRotation;
+                flightCamera.ActivateUpdate();
+                cameraToolActive = false;
+            }
+        }
+
+        /// <summary>
+        /// Switches between CT camera modes without reverting to stock camera first.
+        /// Applies the target mode's configured settings (presetOffset for Stationary, 
+        /// path keyframe for Pathing, etc.).
+        /// Configure settings (SetStationaryPosition, SelectPath, etc.) BEFORE calling this.
+        /// </summary>
+        public void SwitchCamera(ToolModes newMode)
+        {
+            if (!cameraToolActive)
+            {
+                toolMode = newMode;
+                CameraActivate();
+                return;
+            }
+
+            // Stop any playing paths from previous mode
+            if (isPlayingPath)
+            {
+                StopPlayingPath();
+            }
+
+            // Update vessel reference
+            vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null) return;
+
+            // Clear auto-calculation flags that would override user settings
+            // Note: Intentionally NOT clearing setPresetOffset or manualOffset - those are user configurations
+            randomMode = false;
+            autoFlybyPosition = false;
+            autoLandingPosition = false;
+            autoLandingCamEnabled = false;
+
+            // Set new mode
+            toolMode = newMode;
+
+            // Apply mode-specific initialization using the existing Start* methods
+            // These respect user-configured flags like setPresetOffset, selectedPathIndex, etc.
+            if (newMode == ToolModes.StationaryCamera)
+            {
+                // Ensure preset flag is set if we have a configured position
+                // This prevents StartStationaryCamera from entering auto-calculation modes
+                if (presetOffset != Vector3.zero || manualPosition != Vector3.zero)
+                {
+                    setPresetOffset = true;
+                }
+
+                StartStationaryCamera();
+            }
+            else if (newMode == ToolModes.DogfightCamera)
+            {
+                StartDogfightCamera();
+            }
+            else if (newMode == ToolModes.Pathing)
+            {
+                StartPathingCam();
+
+                // If we have a valid path, start playing from current keyframe or beginning
+                if (currentPath != null && currentPath.keyframeCount > 0)
+                {
+                    // Position at the configured start keyframe immediately
+                    float startTime = 0;
+                    if (currentKeyframeIndex > 0 && currentKeyframeIndex < currentPath.keyframeCount)
+                    {
+                        startTime = currentPath.GetKeyframe(currentKeyframeIndex).time;
+                    }
+
+                    CameraTransformation firstFrame = currentPath.Evaluate(startTime);
+                    if (currentPath.isGeoSpatial)
+                    {
+                        flightCamera.transform.position = FlightGlobals.currentMainBody.GetWorldSurfacePosition(firstFrame.position.x, firstFrame.position.y, firstFrame.position.z);
+                        flightCamera.transform.rotation = firstFrame.rotation;
+                    }
+                    else
+                    {
+                        flightCamera.transform.localPosition = firstFrame.position;
+                        flightCamera.transform.localRotation = firstFrame.rotation;
+                    }
+                    SetZoomImmediate(firstFrame.zoom);
+
+                    isPlayingPath = true;
+                    pathStartTime = GetTime() - (startTime / currentPath.timeScale);
+                    OnPathingStarted?.Invoke();
+                }
+            }
+
+            // Clear transition flags
+            hasDied = false;
+            cockpitView = false;
+            waitingForTarget = false;
+            waitingForPosition = false;
+        }
 
         /// <summary>
         /// Sets the FOV immediately without smoothing. Requires cinematicRecorderControl to be true.
@@ -4288,7 +4420,7 @@ namespace CameraTools
             currentFOV = fov;
             manualFOV = fov;
             if (flightCamera != null)
-                flightCamera.SetFoV(currentFOV);
+                flightCamera.SetFoV(fov);
         }
 
         /// <summary>
@@ -4296,18 +4428,53 @@ namespace CameraTools
         /// </summary>
         public void SetCinematicRecorderControl(bool enabled, bool deterministicMode)
         {
+            // When disabling deterministic mode, restore real-time and ensure continuity
+            if (!enabled && cinematicRecorderDeterministic)
+            {
+                
+                if (isPlayingPath && toolMode == ToolModes.Pathing)
+                {
+                    
+                    pathStartTime = GetTime() - (deterministicTimeAccumulator / currentPath.timeScale);
+                }
+                useRealTime = previousUseRealTime;
+            }
+
             cinematicRecorderControl = enabled;
-            cinematicRecorderDeterministic = enabled && deterministicMode;
+            cinematicRecorderDeterministic = deterministicMode;
+
             if (enabled)
             {
-                autoZoomStationary = false; // Prevent conflicts with auto-zoom
-                OnCinematicRecorderControlTaken?.Invoke();
+                lastExternalFOV = currentFOV;
+                autoZoomStationary = false;
+                autoZoomDogfight = false;
+                randomMode = false;
+                autoFlybyPosition = false;
+                autoLandingPosition = false;
+
+                // When entering deterministic mode, disable real-time updates and sync time
+                if (deterministicMode)
+                {
+                    previousUseRealTime = useRealTime;
+                    useRealTime = false; // Stop automatic real-time path updates
+
+                    // Initialize accumulator to current path evaluation time to prevent jumps
+                    // This ensures seamless transition when taking over an already-playing path
+                    if (isPlayingPath && toolMode == ToolModes.Pathing && currentPath != null)
+                    {
+                        // Get current real-time position in path (in evaluation time units, not seconds)
+                        float currentRealPathTime = (GetTime() - pathStartTime) * currentPath.timeScale;
+                        deterministicTimeAccumulator = currentRealPathTime;
+
+                        if (DEBUG) Debug.Log($"[CameraTools]: CR takeover at path time {deterministicTimeAccumulator:F3} (real-time was {currentRealPathTime:F3})");
+                    }
+                    else
+                    {
+                        deterministicTimeAccumulator = 0f;
+                    }
+                }
             }
         }
-
-        // ============================================================================
-        // CinematicRecorder API - Phase 3: Pathing Camera API
-        // ============================================================================
 
         public void StartPathPlayback()
         {
@@ -4341,9 +4508,6 @@ namespace CameraTools
             return index >= 0 && index < availablePaths.Count;
         }
 
-        // ============================================================================
-        // CinematicRecorder API - Phase 4: Deterministic Mode Support
-        // ============================================================================
 
         /// <summary>
         /// Returns deterministic delta time if in deterministic mode, otherwise TimeWarp.fixedDeltaTime
@@ -4358,15 +4522,27 @@ namespace CameraTools
         /// <summary>
         /// Call this from external mods for physics-step deterministic recording.
         /// </summary>
-        public void PhysicsStepUpdate(float physicsDeltaTime)
+        public void PhysicsStepUpdate(float physicsDeltaTime, float playbackDeltaTime)
         {
             if (!cinematicRecorderDeterministic || !cameraToolActive) return;
-            deterministicDeltaTime = physicsDeltaTime;
+
+            // Select delta based on playback lock setting
+            float deltaTime = lockPathingToPlaybackRate ? playbackDeltaTime : physicsDeltaTime;
+            deterministicDeltaTime = deltaTime;
 
             // Advance deterministic path time
             if (toolMode == ToolModes.Pathing && isPlayingPath && currentPath != null)
             {
-                deterministicTimeAccumulator += physicsDeltaTime * currentPath.timeScale;
+                // Accumulate evaluation time directly (path time, not real seconds)
+                // This allows CR to control the exact playback speed regardless of path's timeScale setting
+                deterministicTimeAccumulator += deltaTime;
+
+                // Ensure we don't exceed path duration to avoid errors
+                float maxTime = currentPath.times.Count > 0 ? currentPath.times[currentPath.times.Count - 1] : 0f;
+                if (deterministicTimeAccumulator > maxTime && maxTime > 0)
+                {
+                    deterministicTimeAccumulator = maxTime;
+                }
             }
 
             // Apply external FOV if under CR control
