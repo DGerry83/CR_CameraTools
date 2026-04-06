@@ -205,6 +205,36 @@ namespace CameraTools.ModIntegration
             CamTools.fetch.autoZoomStationary = autoZoom;
         }
 
+        /// <summary>
+        /// Gets the initial velocity for stationary camera velocity maintenance.
+        /// Used for maintaining camera position relative to vessel motion in orbit.
+        /// </summary>
+        public static Vector3d GetInitialVelocity()
+        {
+            if (!IsAvailable) return Vector3d.zero;
+            return CamTools.fetch.initialVelocity;
+        }
+
+        /// <summary>
+        /// Sets the initial velocity for stationary camera velocity maintenance.
+        /// Call this before ActivateCamera() when using maintainInitialVelocity mode.
+        /// </summary>
+        public static void SetInitialVelocity(Vector3d velocity)
+        {
+            if (!IsAvailable) return;
+            CamTools.fetch.initialVelocity = velocity;
+        }
+
+        /// <summary>
+        /// Gets initial velocity as Vector3 (single precision).
+        /// Convenience method for consumers using Unity's Vector3 type.
+        /// </summary>
+        public static Vector3 GetInitialVelocityAsVector3()
+        {
+            Vector3d vel = GetInitialVelocity();
+            return new Vector3((float)vel.x, (float)vel.y, (float)vel.z);
+        }
+
         // NEW: Dogfight Configuration (inserted in Preset Management)
         /// <summary>
         /// Sets dogfight camera configuration.
